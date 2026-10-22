@@ -1,0 +1,194 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1">
+<title>Cache Mapping Simulator</title>
+<style>
+:root{--bg:#f2f5f9;--panel:#fff;--ink:#16212e;--muted:#5d6b7b;--line:#d5dce5;--accent:#2457d6;--hit:#1b8a57;--hitbg:#dff3e8;--miss:#c63a3a;--missbg:#fbe3e3;--selbg:#e3ecff}
+@media (prefers-color-scheme:dark){:root{--bg:#10161e;--panel:#18212c;--ink:#e6ecf3;--muted:#93a1b2;--line:#2c3947;--accent:#6f98ff;--hit:#4cc58a;--hitbg:#173a2b;--miss:#ef7878;--missbg:#4a2024;--selbg:#1d2e52}}
+*{box-sizing:border-box}
+body{margin:0;background:var(--bg);color:var(--ink);font:16px/1.5 "Segoe UI",system-ui,sans-serif}
+main{max-width:900px;margin:0 auto;padding:24px 16px 40px}
+h1{font-size:1.6rem;margin:0 0 4px}
+h2{font-size:1.05rem;margin:0 0 10px}
+.sub{color:var(--muted);margin:0 0 18px}
+.panel{background:var(--panel);border:1px solid var(--line);border-radius:8px;padding:16px;margin-bottom:16px}
+.row{display:grid;grid-template-columns:repeat(auto-fit,minmax(180px,1fr));gap:12px}
+label{display:block;font-size:.85rem;color:var(--muted);margin-bottom:4px}
+select,input{width:100%;padding:8px;border:1px solid var(--line);border-radius:6px;background:var(--bg);color:var(--ink);font:inherit}
+input{font-family:Consolas,monospace}
+.btns{display:flex;flex-wrap:wrap;gap:8px;margin-top:14px}
+button{padding:9px 16px;border-radius:6px;border:1px solid var(--accent);background:var(--accent);color:#fff;font:inherit;font-weight:600;cursor:pointer}
+button.alt{background:transparent;color:var(--accent)}
+button:disabled{opacity:.4;cursor:default}
+:focus-visible{outline:3px solid #b4690e;outline-offset:2px}
+.err{color:var(--miss);font-weight:600;margin:8px 0 0;min-height:1.2em}
+.note{font-size:.92rem;color:var(--muted);margin:8px 0 0}
+.flow{display:flex;flex-wrap:wrap;gap:6px;align-items:center;margin-bottom:12px}
+.flow span{border:2px solid var(--line);border-radius:6px;padding:4px 10px;font-size:.88rem}
+.flow span.on{border-color:var(--accent);background:var(--selbg);font-weight:700}
+.flow span.done{color:var(--muted);border-color:var(--accent)}
+.card{border:1px solid var(--line);border-left:5px solid var(--accent);border-radius:6px;padding:8px 12px;margin-bottom:8px;background:var(--bg)}
+.card.hit{border-left-color:var(--hit);background:var(--hitbg)}
+.card.miss{border-left-color:var(--miss);background:var(--missbg)}
+.card h3{font-size:.95rem;margin:0 0 2px}
+.card p{margin:0;font-size:.92rem}
+.stats{display:flex;gap:24px;flex-wrap:wrap;margin-bottom:6px}
+.stats div{font-size:.85rem;color:var(--muted)}
+.stats strong{display:block;font-size:1.4rem;color:var(--ink)}
+.tbl{overflow-x:auto}
+table{width:100%;border-collapse:collapse;font-size:.92rem}
+th,td{text-align:left;padding:6px 8px;border-bottom:1px solid var(--line);white-space:nowrap}
+th{color:var(--muted);font-weight:600}
+tr.sel td{background:var(--selbg)}
+tr.hit td{background:var(--hitbg)}
+tr.miss td{background:var(--missbg)}
+</style>
+</head>
+<body>
+<main>
+<h1>Cache Mapping Simulator</h1>
+<p class="sub">Pick a mapping type, enter some addresses, and press Next step. Each address goes through 5 simple steps.</p>
+
+<section class="panel">
+<h2>Settings</h2>
+<div class="row">
+<div><label for="map">Mapping type</label>
+<select id="map"><option value="direct">Direct mapped</option><option value="assoc">Fully associative</option><option value="set">2-way set associative</option></select></div>
+<div><label for="cnt">Cache lines</label>
+<select id="cnt"><option>4</option><option selected>8</option></select></div>
+<div><label for="blk">Block size (bytes)</label>
+<select id="blk"><option selected>4</option><option>8</option><option>16</option></select></div>
+</div>
+<div style="margin-top:12px"><label for="seq">Addresses (0 to 255, separated by commas)</label>
+<input id="seq" value="0, 4, 8, 0, 64, 4, 128, 0, 8, 64"></div>
+<p class="err" id="err" role="alert"></p>
+<p class="note" id="info"></p>
+<div class="btns">
+<button id="bStep">Next step</button>
+<button id="bAcc" class="alt">Finish this address</button>
+<button id="bReset" class="alt">Reset</button>
+</div>
+</section>
+
+<section class="panel">
+<h2>Steps</h2>
+<div class="flow" id="flow">
+<span>1 Block number</span><span>2 Split address</span><span>3 Check the set</span><span>4 Hit or miss</span><span>5 Update cache</span>
+</div>
+<div id="steps"><p class="note">Press Next step to begin.</p></div>
+</section>
+
+<section class="panel">
+<h2>Cache</h2>
+<div class="stats">
+<div>Hits<strong id="sH">0</strong></div>
+<div>Misses<strong id="sM">0</strong></div>
+<div>Hit ratio<strong id="sR">0%</strong></div>
+</div>
+<div class="tbl"><table id="cache"></table></div>
+</section>
+
+<section class="panel">
+<h2>Results so far</h2>
+<div class="tbl"><table id="log"></table></div>
+</section>
+</main>
+
+<script>
+const $=id=>document.getElementById(id);
+let cfg,sets=[],seq=[],pos=0,hits=0,misses=0,tick=0,cur=null,stage=0,steps=[],log=[];
+const bin=(n,w)=>w>0?n.toString(2).padStart(w,'0'):'';
+
+function reset(){
+  const type=$('map').value,cnt=+$('cnt').value,blk=+$('blk').value;
+  const ways=type==='direct'?1:type==='assoc'?cnt:2;
+  cfg={type,cnt,blk,ways,nsets:cnt/ways};
+  cfg.ob=Math.log2(blk);cfg.ib=Math.log2(cfg.nsets);cfg.tb=8-cfg.ib-cfg.ob;
+  seq=[];cur=null;stage=0;steps=[];log=[];pos=0;hits=0;misses=0;tick=0;
+  let bad='';
+  for(const t of $('seq').value.split(/[\s,]+/).filter(Boolean)){
+    const n=Number(t);
+    if(!Number.isInteger(n)||n<0||n>255){bad='"'+t+'" is not a whole number from 0 to 255.';break;}
+    seq.push(n);
+  }
+  if(!bad&&!seq.length)bad='Enter at least one address.';
+  $('err').textContent=bad;
+  if(bad)seq=[];
+  sets=Array.from({length:cfg.nsets},()=>Array.from({length:ways},()=>({valid:false,tag:0,block:0,used:0})));
+  const how={direct:'Each block has exactly one possible line.',assoc:'A block can go in any line, so there is no index.',set:'A block can go in either line of its set.'};
+  $('info').textContent=how[type]+' Addresses are 8 bits: '+cfg.tb+' tag + '+cfg.ib+' index + '+cfg.ob+' offset.'+(ways>1?' When a set is full, the least recently used line is replaced.':'');
+  render();
+}
+const canGo=()=>seq.length>0&&((cur&&stage<5)||pos<seq.length);
+const add=(t,b,c)=>steps.push({t,b,c:c||''});
+
+function next(){
+  if(!canGo())return;
+  if(!cur||stage>=5){
+    const a=seq[pos++],block=Math.floor(a/cfg.blk),idx=block%cfg.nsets;
+    cur={a,block,idx,off:a%cfg.blk,tag:Math.floor(block/cfg.nsets),set:sets[idx],way:-1,hit:false,time:++tick};
+    stage=1;steps=[];
+  }else stage++;
+  const c=cfg,u=cur;
+  if(stage===1)add('Step 1: Block number','Address <b>'+u.a+'</b> is in block floor('+u.a+' / '+c.blk+') = <b>'+u.block+'</b>.');
+  if(stage===2){
+    add('Step 2: Split the address','Offset = '+u.a+' mod '+c.blk+' = <b>'+u.off+'</b><br>'+
+      (c.nsets===1?'Index: none (only one set)<br>':'Index = '+u.block+' mod '+c.nsets+' = <b>'+u.idx+'</b><br>')+
+      'Tag = floor('+u.block+' / '+c.nsets+') = <b>'+u.tag+'</b><br>'+
+      'In binary: <code>'+bin(u.tag,c.tb)+' | '+bin(u.idx,c.ib)+' | '+bin(u.off,c.ob)+'</code> (tag | index | offset)');
+  }
+  if(stage===3){
+    u.way=u.set.findIndex(l=>l.valid&&l.tag===u.tag);
+    add('Step 3: Check the set',(c.nsets===1?'Check every line in the cache.':'Look only in '+(c.ways===1?'line ':'set ')+u.idx+'.')+'<br>'+
+      u.set.map((l,k)=>'Line '+k+': '+(!l.valid?'empty':'stored tag '+l.tag+(l.tag===u.tag?' = ':' is not ')+'wanted tag '+u.tag)).join('<br>'));
+  }
+  if(stage===4){
+    u.hit=u.way>=0;u.hit?hits++:misses++;
+    add(u.hit?'Step 4: HIT':'Step 4: MISS',u.hit?'The tag matches, so the block is already in the cache.':'No line has tag '+u.tag+', so the block must be loaded from main memory.',u.hit?'hit':'miss');
+  }
+  if(stage===5){
+    if(u.hit){
+      u.set[u.way].used=u.time;
+      add('Step 5: Read from cache','Data is read from line '+u.way+'. This line is now the most recently used.','hit');
+    }else{
+      let w=u.set.findIndex(l=>!l.valid),why='Line '+w+' is empty, so use it.';
+      if(w<0){
+        w=u.set.reduce((b,l,k)=>l.used<u.set[b].used?k:b,0);
+        why=c.ways===1?'The only line is replaced.':'The set is full. Line '+w+' was used longest ago, so it is replaced.';
+      }
+      u.set[w]={valid:true,tag:u.tag,block:u.block,used:u.time};u.way=w;
+      add('Step 5: Load the block',why+'<br>Block '+u.block+' is copied into line '+w+'.','miss');
+    }
+    log.push({n:pos,a:u.a,hit:u.hit});
+  }
+  render();
+}
+function rowClass(i,k){
+  if(!cur||stage<3||i!==cur.idx)return '';
+  if(stage===3)return 'sel';
+  if(stage===4)return cur.hit&&k===cur.way?'hit':'sel';
+  return k===cur.way?(cur.hit?'hit':'miss'):'';
+}
+function render(){
+  const n=hits+misses;
+  $('sH').textContent=hits;$('sM').textContent=misses;$('sR').textContent=(n?Math.round(100*hits/n):0)+'%';
+  ['bStep','bAcc'].forEach(id=>$(id).disabled=!canGo());
+  document.querySelectorAll('#flow span').forEach((s,k)=>s.className=cur?(stage===k+1?'on':stage>k+1?'done':''):'');
+  $('steps').innerHTML=steps.length?'<p class="note">Address '+pos+' of '+seq.length+'</p>'+steps.map(s=>'<div class="card '+s.c+'"><h3>'+s.t+'</h3><p>'+s.b+'</p></div>').join(''):'<p class="note">Press Next step to begin.</p>';
+  let h='<tr><th>Set</th><th>Line</th><th>Valid</th><th>Tag</th><th>Block stored</th></tr>';
+  sets.forEach((s,i)=>s.forEach((l,k)=>{
+    h+='<tr class="'+rowClass(i,k)+'"><td>'+(k===0?i:'')+'</td><td>'+k+'</td><td>'+(l.valid?1:0)+'</td><td>'+(l.valid?l.tag:'-')+'</td><td>'+(l.valid?'Block '+l.block:'-')+'</td></tr>';
+  }));
+  $('cache').innerHTML=h;
+  $('log').innerHTML='<tr><th>#</th><th>Address</th><th>Result</th></tr>'+log.map(e=>'<tr><td>'+e.n+'</td><td>'+e.a+'</td><td style="font-weight:700;color:var(--'+(e.hit?'hit':'miss')+')">'+(e.hit?'HIT':'MISS')+'</td></tr>').join('');
+}
+$('bStep').onclick=next;
+$('bAcc').onclick=()=>{if(!cur||stage>=5)next();while(cur&&stage<5)next();};
+$('bReset').onclick=reset;
+['map','cnt','blk','seq'].forEach(id=>$(id).addEventListener('change',reset));
+reset();
+</script>
+</body>
+</html>
